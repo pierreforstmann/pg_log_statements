@@ -1,0 +1,5 @@
+# pg_log_statements postgresql extension
+comment = 'pg_log_statements'
+default_version = '0.0.1'
+module_pathname = '$libdir/pg_log_statements'
+relocatable = false
