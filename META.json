@@ -1,0 +1,50 @@
+{
+   "name": "pg_log_statements",
+   "abstract": "set log_statement for specific server processes",
+   "version": "0.0.1",
+   "maintainer": [
+      "Pierre Forstmann"
+   ],
+   "license": {
+      "PostgreSQL": "http://www.postgresql.org/about/licence"
+   },
+   "prereqs": {
+      "runtime": {
+         "requires": {
+            "PostgreSQL": "9.5"
+         },
+         "recommends": {
+            "PostgreSQL": "13"
+         }
+      }
+   },
+   "provides": {
+     "pg_log_statements": {
+         "abstract": "set log_statement for specific server processes",
+         "file": "pg_log_statements.c",
+         "docfile": "README.md",
+         "version": "0.0.1"
+      }
+   },
+   "resources": {
+      "bugtracker": {
+         "web": "http://github.com/pierreforstmann/pg_log_statements/issues"
+      },
+      "repository": {
+        "url":  "https://github.com/pierreforstmann/pg_log_statements.git",
+        "web":  "https://github.com/pierreforstmann/pg_log_statements",
+        "type": "git"
+      }
+   },
+   "generated_by": "Pierre Forstmann",
+   "meta-spec": {
+      "version": "0.0.1",
+      "url": "http://pgxn.org/meta/spec.txt"
+   },
+   "tags": [
+      "logging",
+      "pg_log_statements",
+      "tracing",
+      "log_statement"
+   ]
+}
