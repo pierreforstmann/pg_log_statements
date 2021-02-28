@@ -5,7 +5,7 @@ pg_log_statements is a PostgreSQL extension that allows to log SQL statements fo
 ## Installation
 ### Compiling
 
-This module can be built using the standard PGXS infrastructure. For this to work, the pg_config program must be available in your $PATH:
+This module can be built using the standard PGXS infrastructure. For this to work, the `pg_config` program must be available in your $PATH:
 
 
     git clone https://github.com/pierreforstmann/pg_log_statements.git 
@@ -35,11 +35,11 @@ To enable `log_statement` parameter for a specific server process, run:
 
     select pgls_start(<pid>):
   
-To disable log_statement parameter for a specific server process, run:
+To disable `log_statement` parameter for a specific server process, run:
 
     select pgls_stop(<pid>);
   
-To check what is the current status of log_statement parameter for all server processes, run:
+To check what is the current status of `log_statement` parameter for all server processes, run:
 
     select pgls_state();
 
