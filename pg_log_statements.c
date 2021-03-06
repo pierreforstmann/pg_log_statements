@@ -553,7 +553,7 @@ static bool pgls_stop_internal(int pid)
 				
 			case pgls_started:
 						pgls->procs[i].status = pgls_to_stop;
-						break;
+ 						break;
 
                     	case pgls_to_start:
 						pgls->procs[i].status = pgls_stopped;
@@ -685,6 +685,7 @@ static void pgls_vacuum()
                                      ||
                     pgls->procs[i].status == pgls_stopped)
 		{
+			elog(LOG, "pg_log_statements: removed pid=%d", pgls->procs[i].pid);
 			for (j=i; j < pgls->current_proc_num;j++)
 			{
 				pgls->procs[j].pid = pgls->procs[j+1].pid;
