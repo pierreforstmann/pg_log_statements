@@ -13,11 +13,11 @@ CREATE FUNCTION pgls_stop(int) RETURNS bool
  AS 'pg_log_statements.so', 'pgls_stop'
  LANGUAGE C STRICT;
 --
-CREATE FUNCTION pgls_start_app(text) RETURNS bool
+CREATE FUNCTION pgls_start_app(cstring) RETURNS bool
  AS 'pg_log_statements.so', 'pgls_start_app'
  LANGUAGE C STRICT;
 --
-CREATE FUNCTION pgls_stop_app(text) RETURNS bool
+CREATE FUNCTION pgls_stop_app(cstring) RETURNS bool
  AS 'pg_log_statements.so', 'pgls_stop_app'
  LANGUAGE C STRICT;
 --
@@ -25,3 +25,6 @@ CREATE FUNCTION pgls_state() RETURNS setof record
  AS 'pg_log_statements.so', 'pgls_state'
  LANGUAGE C STRICT;
 --
+CREATE FUNCTION pgls_conf() RETURNS setof record
+ AS 'pg_log_statements.so', 'pgls_conf'
+ LANGUAGE C STRICT;
