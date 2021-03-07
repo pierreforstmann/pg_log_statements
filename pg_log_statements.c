@@ -45,6 +45,8 @@
 #include "funcapi.h"
 #include "catalog/pg_type.h"
 
+#include "libpq/auth.h"
+
 PG_MODULE_MAGIC;
 
 /*
@@ -52,6 +54,15 @@ PG_MODULE_MAGIC;
  * Global shared state
  * 
  */
+
+/*
+ *  maximum filter length
+ */
+#define	PGLS_MFL	20
+/*
+ * maximum filter number
+ */
+#define PGLS_MFN	5
 
 typedef enum {
 	pgls_none,
@@ -67,17 +78,32 @@ typedef struct pglsProc
 	pgls_status	status;
 } pglsProc;
 
+typedef struct pglsFilter
+{
+	char		filter[PGLS_MFL];
+} pglsFilter;
+
 typedef struct pglsSharedState
 {
 	LWLock	   	*lock;			/* self protection */
+	/*
+ 	 * backend array
+ 	 */
         pglsProc	*procs;
 	int		current_proc_num;
+	/*
+ 	 * filter array
+ 	 */
+	pglsFilter	*filters;
+	int		current_filter_num;
+	
 } pglsSharedState;
 
 /* Saved hook values in case of unload */
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 static ProcessUtility_hook_type prev_process_utility_hook = NULL;
 static ExecutorStart_hook_type prev_executor_start_hook = NULL;
+static ClientAuthentication_hook_type next_client_auth_hook = NULL;
 
 /* Links to shared memory state */
 static pglsSharedState *pgls= NULL;
@@ -95,10 +121,20 @@ static void pgls_vacuum(void);
 static bool pgls_start_internal(int pid);
 static bool pgls_stop_internal(int pid);
 static Datum pgls_state_internal(FunctionCallInfo fcinfo);
+static void pgls_auth_debug(Port *port);
+static void pgls_auth(Port *port, int status);
+static bool pgls_start_app_internal(char *application_name);
+static bool pgls_stop_app_internal(char *application_name);
+static Datum pgls_conf_internal(FunctionCallInfo fcinfo);
+
+
 
 PG_FUNCTION_INFO_V1(pgls_start);
 PG_FUNCTION_INFO_V1(pgls_stop);
 PG_FUNCTION_INFO_V1(pgls_state);
+PG_FUNCTION_INFO_V1(pgls_stop_app);
+PG_FUNCTION_INFO_V1(pgls_start_app);
+PG_FUNCTION_INFO_V1(pgls_conf);
 
 void		_PG_init(void);
 void		_PG_fini(void);
@@ -159,6 +195,7 @@ pgls_shmem_startup(void)
 
 	bool		found;
 	pglsProc	*procs;
+	pglsFilter	*filters;
 	int		i;
 
 	elog(DEBUG5, "pg_log_statements: pgls_shmem_startup: entry");
@@ -198,9 +235,13 @@ pgls_shmem_startup(void)
 		procs[i].pid = 0;
 		procs[i].status = pgls_none;
 	}
-
 	pgls->procs = procs;
 	pgls->current_proc_num = 0;
+
+	filters = (pglsFilter *)ShmemAlloc(PGLS_MFN * sizeof(pglsFilter));
+	MemSet(filters, 0, PGLS_MFN * sizeof(pglsFilter));
+	pgls->current_filter_num = 0;
+	pgls->filters = filters;
 
 	LWLockRelease(AddinShmemInitLock);
 
@@ -281,6 +322,8 @@ _PG_init(void)
  	ExecutorStart_hook = pgls_esexec;	
 	prev_process_utility_hook = ProcessUtility_hook;
  	ProcessUtility_hook = pgls_puexec;	
+        next_client_auth_hook = ClientAuthentication_hook; 
+        ClientAuthentication_hook = pgls_auth;          
 
 	elog(DEBUG5, "pg_log_statements: _PG_init(): exit");
 }
@@ -297,6 +340,7 @@ _PG_fini(void)
 	/* Uninstall hooks. */
 	shmem_startup_hook = prev_shmem_startup_hook;
 	ProcessUtility_hook = prev_process_utility_hook;
+	ClientAuthentication_hook = next_client_auth_hook;
 
 	elog(DEBUG5, "pg_log_statements: _PG_fini(): exit");
 }
@@ -465,7 +509,26 @@ pgls_puexec(
 
 /*
  *
+ * pgls_add_backend (caller must have locked pglsSharedState)
+ *
+ */
+static void pgls_add_backend(int pid, pgls_status status )
+{
+	
+	if (pgls->current_proc_num == MaxBackends)	
+		ereport(ERROR, (errmsg("Too many pending logging requests")));
+
+	pgls->procs[pgls->current_proc_num].pid = pid;
+	pgls->procs[pgls->current_proc_num].status = status;
+	pgls->current_proc_num++;
+
+}
+
+/*
+ *
  * pgls_start_internal
+ * logging request is processed for matched backend process identifier
+ * (behaviour different from logging request using filter like application name)
  *
  */
 static bool pgls_start_internal(int pid)
@@ -513,18 +576,11 @@ static bool pgls_start_internal(int pid)
 		}
 	}
 
-	if (found == false && i < MaxBackends)	
-	{
-		pgls->procs[pgls->current_proc_num].pid = pid;
-		pgls->procs[pgls->current_proc_num].status = pgls_to_start;
-		pgls->current_proc_num++;
-	}
+	if (found == false)	
+		pgls_add_backend(pid, pgls_to_start);
 
 	LWLockRelease(pgls->lock);
 
-	if (i == MaxBackends)	
-		ereport(ERROR,
-			(errmsg("Too many pending logging requests: %d", i)));
 
 	return true;
 }
@@ -797,3 +853,218 @@ static Datum pgls_state_internal(FunctionCallInfo fcinfo)
 	return (Datum)0;	
 
 }
+
+
+static void pgls_auth_debug(Port *port)
+{
+       if (port->remote_host != NULL)
+               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: remote_host=%s", port->remote_host);
+       else
+               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: remote_host=NULL");
+
+       if (port->remote_hostname != NULL)
+               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: remote_hostname=%s", port->remote_hostname);
+       else
+               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: remote_hostname=NULL");
+
+       if (port->user_name != NULL)
+               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: user_name=%s", port->user_name);
+       else
+               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: user_name=NULL");
+
+       if (port->application_name != NULL)
+               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: P->application_name=%s", port->application_name);
+       else
+               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: P->application_name=NULL");
+
+       if (MyProcPort->application_name != NULL)
+               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: MPP->application_name=%s", MyProcPort->application_name);
+       else
+               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: MPP->application_name=NULL");
+
+}
+
+static void pgls_auth(Port *port, int status)
+{
+
+       int	 i;
+       bool	found = false; 
+
+       pgls_auth_debug(port);
+
+       if (next_client_auth_hook) 
+               (*next_client_auth_hook) (port, status); 
+       if (status != STATUS_OK) return;
+
+	/* lock ... */
+
+	for (i=0; i < pgls->current_filter_num && found == false ; i++)
+	{
+		if (strstr(MyProcPort->application_name, pgls->filters[i].filter) != NULL)
+		{
+			found = true;
+       			SetConfigOption("log_statement", "all", PGC_SUSET, PGC_S_CLIENT);
+		        elog(LOG, "pg_log_statements: pgls_auth: pg_log_statement=all for %d (application_name=%s)", 
+                                   MyProcPid, MyProcPort->application_name);
+			pgls_add_backend(MyProcPid, pgls_started);
+		}
+
+	}
+
+
+
+	/* ... unlock */
+}
+
+
+/*
+ *   
+ *   pgls_stop_app_internal
+ *
+ *  filter will be applied only to *new* backend (existing backends are *not* processed:
+ *  behavior is different from logging request using process identifier)
+ *   
+ */
+static bool pgls_stop_app_internal(char *application_name)
+{
+	int i;
+	bool found = false;
+	int j;
+
+	/* lock ... */
+
+	for (i = 0; i < pgls->current_filter_num && found == false; i++)
+	{
+		if (strcmp(pgls->filters[i].filter, application_name) == 0)
+			found = true;
+	}	
+	if (found == false)
+	{
+		/* unlock ... */
+		ereport(ERROR, (errmsg("Filter %s not found", application_name)));
+	}
+
+	/* only 1 filter to remove */
+        for (j = i-1; j < pgls->current_filter_num; j++)
+        {
+		strcpy(pgls->filters[j].filter, pgls->filters[j+1].filter);
+        }
+        pgls->current_filter_num--;
+        elog(LOG, "pg_log_statements: removed filter=%s", application_name);
+
+	/* unlock ... */
+
+	return true;
+}
+
+Datum pgls_stop_app(PG_FUNCTION_ARGS)
+{
+         char  *application_name;
+
+         application_name = PG_GETARG_CSTRING(0);
+         elog(LOG, "pgls_stop_app application_name=%s", application_name);
+
+         PG_RETURN_BOOL(pgls_stop_app_internal(application_name));
+}
+
+/*
+ *  
+ *  pgls_start_app_internal
+ *
+ *  filter will be applied only to *new* backend (existing backends are *not* processed:
+ *  behavior is different from logging request using process identifier)
+ *  
+ */
+static bool pgls_start_app_internal(char *application_name)
+{
+	/* lock ... */
+		
+	if (pgls->current_filter_num == PGLS_MFN)
+	{
+		/* unlock */
+		ereport(ERROR, (errmsg("Maximum filter numbers is reached %d", pgls->current_filter_num)));
+	}
+
+	/* check string length < PGLS_MFN  ... */
+
+	/* search if filter already exist ... */
+
+	strcpy(pgls->filters[pgls->current_filter_num].filter, application_name);
+	pgls->current_filter_num++;
+
+	/* ... unlock */	
+
+	return true;
+}
+
+Datum pgls_start_app(PG_FUNCTION_ARGS)
+{
+         char  *application_name;
+
+         application_name = PG_GETARG_CSTRING(0);
+         elog(LOG, "pgls_start_app application_name=%s", application_name);
+
+         PG_RETURN_BOOL(pgls_start_app_internal(application_name));
+}
+
+Datum pgls_conf(PG_FUNCTION_ARGS)
+{
+
+        return (pgls_conf_internal(fcinfo));
+}
+
+
+static Datum pgls_conf_internal(FunctionCallInfo fcinfo)
+{
+	ReturnSetInfo 	*rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+	bool		randomAccess;
+	TupleDesc	tupdesc;
+	Tuplestorestate *tupstore;
+	AttInMetadata	 *attinmeta;
+	MemoryContext 	oldcontext;
+	int 		i;
+
+	/* The tupdesc and tuplestore must be created in ecxt_per_query_memory */
+	oldcontext = MemoryContextSwitchTo(rsinfo->econtext->ecxt_per_query_memory);
+#if PG_VERSION_NUM <= 120000
+	tupdesc = CreateTemplateTupleDesc(1, false);
+#else
+	tupdesc = CreateTemplateTupleDesc(1);
+#endif
+	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "filter=application_name",
+					   TEXTOID, -1, 0);
+
+	randomAccess = (rsinfo->allowedModes & SFRM_Materialize_Random) != 0;
+	tupstore = tuplestore_begin_heap(randomAccess, false, work_mem);
+	rsinfo->returnMode = SFRM_Materialize;
+	rsinfo->setResult = tupstore;
+	rsinfo->setDesc = tupdesc;
+
+	MemoryContextSwitchTo(oldcontext);
+
+	attinmeta = TupleDescGetAttInMetadata(tupdesc);
+
+	LWLockAcquire(pgls->lock, LW_SHARED);
+
+	for (i=0; i < pgls->current_filter_num; i++)
+	{
+		char 		*values[2];
+		HeapTuple	tuple;
+		char		buf_v1[20];
+
+
+		snprintf(buf_v1, sizeof(buf_v1), "%s", pgls->filters[i].filter);
+		values[0] = buf_v1;
+
+		tuple = BuildTupleFromCStrings(attinmeta, values);
+	
+		tuplestore_puttuple(tupstore, tuple);
+
+	}
+
+	LWLockRelease(pgls->lock);
+
+	return (Datum)0;	
+
+}
+
