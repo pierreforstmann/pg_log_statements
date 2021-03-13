@@ -46,6 +46,7 @@
 #include "catalog/pg_type.h"
 
 #include "libpq/auth.h"
+#include "common/ip.h"
 
 PG_MODULE_MAGIC;
 
@@ -55,6 +56,12 @@ PG_MODULE_MAGIC;
  * 
  */
 
+
+typedef enum {
+	pgls_application_name,
+        pgls_hostname,
+	pgls_ip_address
+} pgls_filter_type;
 /*
  *  maximum filter length
  */
@@ -80,7 +87,8 @@ typedef struct pglsProc
 
 typedef struct pglsFilter
 {
-	char		filter[PGLS_MFL];
+	pgls_filter_type	type;
+	char			filter[PGLS_MFL];
 } pglsFilter;
 
 typedef struct pglsSharedState
@@ -96,6 +104,10 @@ typedef struct pglsSharedState
  	 */
 	pglsFilter	*filters;
 	int		current_filter_num;
+	/*
+ 	 * debug flag
+ 	 */
+	bool		debug;
 	
 } pglsSharedState;
 
@@ -123,18 +135,21 @@ static bool pgls_stop_internal(int pid);
 static Datum pgls_state_internal(FunctionCallInfo fcinfo);
 static void pgls_auth_debug(Port *port);
 static void pgls_auth(Port *port, int status);
-static bool pgls_start_app_internal(char *application_name);
-static bool pgls_stop_app_internal(char *application_name);
+static bool pgls_start_filter_internal(char *filter_name, char *filter_value);
+static bool pgls_stop_filter_internal(char *filter_name, char *filter_value);
 static Datum pgls_conf_internal(FunctionCallInfo fcinfo);
-
+static bool pgls_start_debug_internal();
+static bool pgls_stop_debug_internal();
 
 
 PG_FUNCTION_INFO_V1(pgls_start);
 PG_FUNCTION_INFO_V1(pgls_stop);
 PG_FUNCTION_INFO_V1(pgls_state);
-PG_FUNCTION_INFO_V1(pgls_stop_app);
-PG_FUNCTION_INFO_V1(pgls_start_app);
+PG_FUNCTION_INFO_V1(pgls_stop_filter);
+PG_FUNCTION_INFO_V1(pgls_start_filter);
 PG_FUNCTION_INFO_V1(pgls_conf);
+PG_FUNCTION_INFO_V1(pgls_start_debug);
+PG_FUNCTION_INFO_V1(pgls_stop_debug);
 
 void		_PG_init(void);
 void		_PG_fini(void);
@@ -242,6 +257,8 @@ pgls_shmem_startup(void)
 	MemSet(filters, 0, PGLS_MFN * sizeof(pglsFilter));
 	pgls->current_filter_num = 0;
 	pgls->filters = filters;
+	
+	pgls->debug = false;
 
 	LWLockRelease(AddinShmemInitLock);
 
@@ -858,153 +875,234 @@ static Datum pgls_state_internal(FunctionCallInfo fcinfo)
 static void pgls_auth_debug(Port *port)
 {
        if (port->remote_host != NULL)
-               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: remote_host=%s", port->remote_host);
+               elog(LOG, "pg_log_statements: pgls_auth_debug: remote_host=%s", port->remote_host);
        else
-               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: remote_host=NULL");
+               elog(LOG, "pg_log_statements: pgls_auth_debug: remote_host=NULL");
 
        if (port->remote_hostname != NULL)
-               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: remote_hostname=%s", port->remote_hostname);
+               elog(LOG, "pg_log_statements: pgls_auth_debug: remote_hostname=%s", port->remote_hostname);
        else
-               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: remote_hostname=NULL");
+               elog(LOG, "pg_log_statements: pgls_auth_debug: remote_hostname=NULL");
 
        if (port->user_name != NULL)
-               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: user_name=%s", port->user_name);
+               elog(LOG, "pg_log_statements: pgls_auth_debug: user_name=%s", port->user_name);
        else
-               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: user_name=NULL");
+               elog(LOG, "pg_log_statements: pgls_auth_debug: user_name=NULL");
 
        if (port->application_name != NULL)
-               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: P->application_name=%s", port->application_name);
+               elog(LOG, "pg_log_statements: pgls_auth_debug: port->application_name=%s", port->application_name);
        else
-               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: P->application_name=NULL");
+               elog(LOG, "pg_log_statements: pgls_auth_debug: port->application_name=NULL");
+
+       if (MyProcPort->remote_host != NULL)
+               elog(LOG, "pg_log_statements: pgls_auth_debug: MyProcPort->remote_host=%s", MyProcPort->remote_host);
+       else
+               elog(LOG, "pg_log_statements: pgls_auth_debug: MyProcPort->remote_host=NULL");
+
+       if (MyProcPort->remote_hostname != NULL)
+               elog(LOG, "pg_log_statements: pgls_auth_debug: MyProcPort->remote_hostname=%s", MyProcPort->remote_hostname);
+       else
+               elog(LOG, "pg_log_statements: pgls_auth_debug: MyProcPort->remote_hostname=NULL");
+
 
        if (MyProcPort->application_name != NULL)
-               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: MPP->application_name=%s", MyProcPort->application_name);
+               elog(LOG, "pg_log_statements: pgls_auth_debug: MyProcPort->application_name=%s", MyProcPort->application_name);
        else
-               elog(DEBUG1, "pg_log_statements: pgls_auth_debug: MPP->application_name=NULL");
+               elog(LOG, "pg_log_statements: pgls_auth_debug: MyProcPort->application_name=NULL");
 
 }
 
 static void pgls_auth(Port *port, int status)
 {
 
-       int	 i;
-       bool	found = false; 
+	int	 i;
+	bool	found = false; 
 
-       pgls_auth_debug(port);
+        /*	
+	 * char		remote_host[NI_MAXHOST];
+	 * char		remote_port[NI_MAXSERV];
+	 * int		ret;
+	 */
 
-       if (next_client_auth_hook) 
+       if (pgls->debug == true)
+       	       pgls_auth_debug(port);
+
+	if (next_client_auth_hook) 
                (*next_client_auth_hook) (port, status); 
-       if (status != STATUS_OK) return;
+	if (status != STATUS_OK) return;
 
-	/* lock ... */
+	/*
+ 	 * from BackEndIntialize
+	 * Get the remote host name and port for logging and status display.
+  	 */
+	/* remote_host[0] = '\0';
+	 * remote_port[0] = '\0';
+	 * if ((ret = pg_getnameinfo_all(&port->raddr.addr, port->raddr.salen,
+	 *				  remote_host, sizeof(remote_host),
+	 *				  remote_port, sizeof(remote_port),
+	 *				  NI_NUMERICHOST)))
+	 *	elog(WARNING, "pg_getnameinfo_all() failed");
+	 * if (pgls->debug)
+	 *	elog(LOG, "remote_host=%s", remote_host);
+         */
+
+
+	LWLockAcquire(pgls->lock, LW_EXCLUSIVE);
 
 	for (i=0; i < pgls->current_filter_num && found == false ; i++)
 	{
-		if (strstr(MyProcPort->application_name, pgls->filters[i].filter) != NULL)
+		if ( 
+                      (pgls->filters[i].type == pgls_application_name 
+                       && strstr(MyProcPort->application_name, pgls->filters[i].filter) != NULL)
+                                              ||
+                      (pgls->filters[i].type == pgls_hostname
+		       && MyProcPort->remote_hostname != NULL 
+                       && strcmp(MyProcPort->remote_hostname, pgls->filters[i].filter) == 0)
+                   )
 		{
 			found = true;
        			SetConfigOption("log_statement", "all", PGC_SUSET, PGC_S_CLIENT);
-		        elog(LOG, "pg_log_statements: pgls_auth: pg_log_statement=all for %d (application_name=%s)", 
-                                   MyProcPid, MyProcPort->application_name);
+		        elog(LOG, "pg_log_statements: pgls_auth: pg_log_statement=all for %d", MyProcPid);
 			pgls_add_backend(MyProcPid, pgls_started);
 		}
 
 	}
 
+	LWLockRelease(pgls->lock);
 
-
-	/* ... unlock */
 }
 
 
 /*
  *   
- *   pgls_stop_app_internal
+ *   pgls_stop_filter_internal
  *
  *  filter will be applied only to *new* backend (existing backends are *not* processed:
  *  behavior is different from logging request using process identifier)
  *   
  */
-static bool pgls_stop_app_internal(char *application_name)
+static bool pgls_stop_filter_internal(char *filter_name, char *filter_value)
 {
-	int i;
-	bool found = false;
-	int j;
+	int 			i;
+	bool 			found = false;
+	int 			j;
+	pgls_filter_type	filter_type;
 
-	/* lock ... */
+	if (strcmp(filter_name,"application_name") == 0)
+		filter_type = pgls_application_name;
+	else if (strcmp(filter_name, "hostname") == 0)
+		filter_type = pgls_hostname;
+	else	
+		ereport(ERROR, (errmsg("Unkown filter=%s", filter_name)));
+
+	LWLockAcquire(pgls->lock, LW_EXCLUSIVE);
 
 	for (i = 0; i < pgls->current_filter_num && found == false; i++)
 	{
-		if (strcmp(pgls->filters[i].filter, application_name) == 0)
+		if (pgls->filters[i].type == filter_type 
+                                           && 
+                    strcmp(pgls->filters[i].filter, filter_value) == 0)
 			found = true;
 	}	
 	if (found == false)
 	{
-		/* unlock ... */
-		ereport(ERROR, (errmsg("Filter %s not found", application_name)));
+		LWLockRelease(pgls->lock);
+		ereport(ERROR, (errmsg("Filter=%s value=%s not found", filter_name, filter_value)));
 	}
 
 	/* only 1 filter to remove */
         for (j = i-1; j < pgls->current_filter_num; j++)
         {
+		pgls->filters[j].type = pgls->filters[j+1].type;	
 		strcpy(pgls->filters[j].filter, pgls->filters[j+1].filter);
         }
         pgls->current_filter_num--;
-        elog(LOG, "pg_log_statements: removed filter=%s", application_name);
 
-	/* unlock ... */
+        elog(LOG, "pg_log_statements: removed filter=%s value=%s", filter_name, filter_value);
 
+	LWLockRelease(pgls->lock);
 	return true;
 }
 
-Datum pgls_stop_app(PG_FUNCTION_ARGS)
+Datum pgls_stop_filter(PG_FUNCTION_ARGS)
 {
-         char  *application_name;
+         char  *filter_name;
+         char  *filter_value;
 
-         application_name = PG_GETARG_CSTRING(0);
-         elog(LOG, "pgls_stop_app application_name=%s", application_name);
+         filter_name = PG_GETARG_CSTRING(0);
+         filter_value = PG_GETARG_CSTRING(1);
+         elog(LOG, "pgls_stop_filter filter=%s value=%s", filter_name, filter_value);
 
-         PG_RETURN_BOOL(pgls_stop_app_internal(application_name));
+         PG_RETURN_BOOL(pgls_stop_filter_internal(filter_name, filter_value));
 }
 
 /*
  *  
- *  pgls_start_app_internal
+ *  pgls_start_filter_internal
  *
  *  filter will be applied only to *new* backend (existing backends are *not* processed:
  *  behavior is different from logging request using process identifier)
  *  
  */
-static bool pgls_start_app_internal(char *application_name)
+static bool pgls_start_filter_internal(char *filter_name, char *filter_value)
 {
-	/* lock ... */
+	bool			found = false;
+	int			i;
+	pgls_filter_type	filter_type;
+
+	if (strcmp(filter_name,"application_name") == 0)
+		filter_type = pgls_application_name;
+	else if (strcmp(filter_name, "hostname") == 0)
+		filter_type = pgls_hostname;
+	else	
+		ereport(ERROR, (errmsg("Unkown filter: %s", filter_name)));
+
+	LWLockAcquire(pgls->lock, LW_EXCLUSIVE);
 		
 	if (pgls->current_filter_num == PGLS_MFN)
 	{
-		/* unlock */
+		LWLockRelease(pgls->lock);
 		ereport(ERROR, (errmsg("Maximum filter numbers is reached %d", pgls->current_filter_num)));
 	}
 
-	/* check string length < PGLS_MFN  ... */
+	if (strlen(filter_value) > PGLS_MFL)
+	{
+		LWLockRelease(pgls->lock);
+		ereport(ERROR, (errmsg("Filter length %zu is greater than %d", strlen(application_name), PGLS_MFL)));
+	}
 
 	/* search if filter already exist ... */
 
-	strcpy(pgls->filters[pgls->current_filter_num].filter, application_name);
+	for (i = 0; i < pgls->current_filter_num && found == false; i++)
+	{
+		if (pgls->filters[i].type == filter_type && strcmp(pgls->filters[i].filter, filter_value) == 0)
+			found = true;
+	}	
+	if (found == true)
+	{
+		LWLockRelease(pgls->lock);
+		ereport(ERROR, (errmsg("Filter %s already exists", application_name)));
+	}		
+
+	pgls->filters[pgls->current_filter_num].type = filter_type;
+	strcpy(pgls->filters[pgls->current_filter_num].filter, filter_value);
 	pgls->current_filter_num++;
 
-	/* ... unlock */	
+	LWLockRelease(pgls->lock);
 
 	return true;
 }
 
-Datum pgls_start_app(PG_FUNCTION_ARGS)
+Datum pgls_start_filter(PG_FUNCTION_ARGS)
 {
-         char  *application_name;
+         char  *filter_name;
+         char  *filter_value;
 
-         application_name = PG_GETARG_CSTRING(0);
-         elog(LOG, "pgls_start_app application_name=%s", application_name);
+         filter_name = PG_GETARG_CSTRING(0);
+         filter_value = PG_GETARG_CSTRING(1);
+         elog(LOG, "pgls_start_app filter=%s value=%s", filter_name, filter_value);
 
-         PG_RETURN_BOOL(pgls_start_app_internal(application_name));
+         PG_RETURN_BOOL(pgls_start_filter_internal(filter_name, filter_value));
 }
 
 Datum pgls_conf(PG_FUNCTION_ARGS)
@@ -1027,12 +1125,12 @@ static Datum pgls_conf_internal(FunctionCallInfo fcinfo)
 	/* The tupdesc and tuplestore must be created in ecxt_per_query_memory */
 	oldcontext = MemoryContextSwitchTo(rsinfo->econtext->ecxt_per_query_memory);
 #if PG_VERSION_NUM <= 120000
-	tupdesc = CreateTemplateTupleDesc(1, false);
+	tupdesc = CreateTemplateTupleDesc(2, false);
 #else
-	tupdesc = CreateTemplateTupleDesc(1);
+	tupdesc = CreateTemplateTupleDesc(2);
 #endif
-	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "filter=application_name",
-					   TEXTOID, -1, 0);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "filter type", TEXTOID, -1, 0);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "filter value", TEXTOID, -1, 0);
 
 	randomAccess = (rsinfo->allowedModes & SFRM_Materialize_Random) != 0;
 	tupstore = tuplestore_begin_heap(randomAccess, false, work_mem);
@@ -1051,10 +1149,27 @@ static Datum pgls_conf_internal(FunctionCallInfo fcinfo)
 		char 		*values[2];
 		HeapTuple	tuple;
 		char		buf_v1[20];
+		char		buf_v2[20];
 
 
-		snprintf(buf_v1, sizeof(buf_v1), "%s", pgls->filters[i].filter);
-		values[0] = buf_v1;
+		switch(pgls->filters[i].type)
+		{
+			case pgls_application_name:
+				strcpy(buf_v1, "application name");
+				values[0]=buf_v1;
+				break;
+			case pgls_hostname:
+				strcpy(buf_v1, "hostname");
+				values[0]=buf_v1;
+				break;
+			default:
+				strcpy(buf_v1, "ERROR: unexpected value");
+				values[0]=buf_v1;
+				break;
+		}
+
+		snprintf(buf_v2, sizeof(buf_v2), "%s", pgls->filters[i].filter);
+		values[1] = buf_v2;
 
 		tuple = BuildTupleFromCStrings(attinmeta, values);
 	
@@ -1068,3 +1183,33 @@ static Datum pgls_conf_internal(FunctionCallInfo fcinfo)
 
 }
 
+static bool pgls_start_debug_internal()
+{
+	/* no lock */
+
+	pgls->debug = true;	
+        elog(LOG, "pg_log_statements: pgls_start_debug");
+
+	return true;
+}
+
+Datum pgls_start_debug(PG_FUNCTION_ARGS)
+{
+
+        return (pgls_start_debug_internal(fcinfo));
+}
+static bool pgls_stop_debug_internal()
+{
+	/* no lock */
+
+	pgls->debug = false;	
+        elog(LOG, "pg_log_statements: pgls_stop_debug");
+
+	return true;
+}
+
+Datum pgls_stop_debug(PG_FUNCTION_ARGS)
+{
+
+        return (pgls_stop_debug_internal(fcinfo));
+}
