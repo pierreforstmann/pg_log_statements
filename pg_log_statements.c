@@ -60,7 +60,9 @@ PG_MODULE_MAGIC;
 typedef enum {
 	pgls_application_name,
         pgls_hostname,
-	pgls_ip_address
+	pgls_ip_address,
+	pgls_user_name,
+        pgls_database_name
 } pgls_filter_type;
 /*
  *  maximum filter length
@@ -931,22 +933,6 @@ static void pgls_auth(Port *port, int status)
                (*next_client_auth_hook) (port, status); 
 	if (status != STATUS_OK) return;
 
-	/*
- 	 * from BackEndIntialize
-	 * Get the remote host name and port for logging and status display.
-  	 */
-	/* remote_host[0] = '\0';
-	 * remote_port[0] = '\0';
-	 * if ((ret = pg_getnameinfo_all(&port->raddr.addr, port->raddr.salen,
-	 *				  remote_host, sizeof(remote_host),
-	 *				  remote_port, sizeof(remote_port),
-	 *				  NI_NUMERICHOST)))
-	 *	elog(WARNING, "pg_getnameinfo_all() failed");
-	 * if (pgls->debug)
-	 *	elog(LOG, "remote_host=%s", remote_host);
-         */
-
-
 	LWLockAcquire(pgls->lock, LW_EXCLUSIVE);
 
 	for (i=0; i < pgls->current_filter_num && found == false ; i++)
@@ -958,6 +944,18 @@ static void pgls_auth(Port *port, int status)
                       (pgls->filters[i].type == pgls_hostname
 		       && MyProcPort->remote_hostname != NULL 
                        && strcmp(MyProcPort->remote_hostname, pgls->filters[i].filter) == 0)
+                                              ||
+                      (pgls->filters[i].type == pgls_ip_address
+		       && MyProcPort->remote_host != NULL 
+                       && strcmp(MyProcPort->remote_host, pgls->filters[i].filter) == 0)
+                                              ||
+                      (pgls->filters[i].type == pgls_user_name
+		       && MyProcPort->user_name != NULL 
+                       && strcmp(MyProcPort->user_name, pgls->filters[i].filter) == 0)
+                                              ||
+                      (pgls->filters[i].type == pgls_database_name
+		       && MyProcPort->database_name != NULL 
+                       && strcmp(MyProcPort->database_name, pgls->filters[i].filter) == 0)
                    )
 		{
 			found = true;
@@ -992,6 +990,12 @@ static bool pgls_stop_filter_internal(char *filter_name, char *filter_value)
 		filter_type = pgls_application_name;
 	else if (strcmp(filter_name, "hostname") == 0)
 		filter_type = pgls_hostname;
+	else if (strcmp(filter_name, "ip_address") == 0)
+		filter_type = pgls_ip_address;
+	else if (strcmp(filter_name, "user_name") == 0)
+		filter_type = pgls_user_name;
+	else if (strcmp(filter_name, "database_name") == 0)
+		filter_type = pgls_database_name;
 	else	
 		ereport(ERROR, (errmsg("Unkown filter=%s", filter_name)));
 
@@ -1054,6 +1058,12 @@ static bool pgls_start_filter_internal(char *filter_name, char *filter_value)
 		filter_type = pgls_application_name;
 	else if (strcmp(filter_name, "hostname") == 0)
 		filter_type = pgls_hostname;
+	else if (strcmp(filter_name, "ip_address") == 0)
+		filter_type = pgls_ip_address;
+	else if (strcmp(filter_name, "user_name") == 0)
+		filter_type = pgls_user_name;
+	else if (strcmp(filter_name, "database_name") == 0)
+		filter_type = pgls_database_name;
 	else	
 		ereport(ERROR, (errmsg("Unkown filter: %s", filter_name)));
 
@@ -1160,6 +1170,18 @@ static Datum pgls_conf_internal(FunctionCallInfo fcinfo)
 				break;
 			case pgls_hostname:
 				strcpy(buf_v1, "hostname");
+				values[0]=buf_v1;
+				break;
+			case pgls_ip_address:
+				strcpy(buf_v1, "ip address");
+				values[0]=buf_v1;
+				break;
+			case pgls_user_name:
+				strcpy(buf_v1, "user_name");
+				values[0]=buf_v1;
+				break;
+			case pgls_database_name:
+				strcpy(buf_v1, "database_name");
 				values[0]=buf_v1;
 				break;
 			default:
