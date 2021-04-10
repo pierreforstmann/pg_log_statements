@@ -33,25 +33,48 @@ PGLS has no GUC parameter and run `log_statement=all` for selected server proces
 
 PGLS can be used in 2 different ways:
 
-1. Either by using the service process identified (pid)
-2. Or by using a filter to enable logging from server process start to server process start (the filter clause specified which server processed will enable `log_statement=all`
+1. Either by using the service process identified (pid): pid mode
+2. Or by using a filter to enable logging from server process start to server process start (the filter clause specified which server processed will enable `log_statement=all`): filter mode
 
 Both modes are complementary and cannot be mixed:
 - if pid mode has been used, PGLS allows to stop server process logging
-- if filter mode has been used, PGLS does not allow to choose server process logging start and stop: server process logging starts at process creation and ends at process exit; filter usage only applies to new server process (existing server process cannot be selected in filter mode).
+- if filter mode has been used, PGLS does not allow to choose server process logging start or stop: server process logging starts at process creation and ends at process exit; filter mode only applies to new server processes (existing server processes cannot be selected in filter mode).
 
-### Using server process by process identifier
+### Using pid mode
 
 To enable `log_statement` parameter for a specific server process, run:
 
-    select pgls_start(<pid>):
+    select pgls_start(pid):
   
 To disable `log_statement` parameter for a specific server process, run:
 
-    select pgls_stop(<pid>);
+    select pgls_stop(pid);
   
 To check what is the current status of `log_statement` parameter for all server processes, run:
 
     select pgls_state();
 
-  
+### Using filter mode
+
+To enable `log_statement` parameter for new server process started by a specific PostgreSQL user, run:
+    select pgls_filter('user_name', 'your_user');
+    
+To enable `log_statement` parameter for new server process started from some specific host name, run:
+    select pgls_filter('hostname', 'your_hostname');
+    
+To enable `log_statement` parameter for new server process started from some specific IP address, run:
+    select pgls_filter('ip_address', 'your_IP_address');
+    
+To enable `log_statement` parameter for new server process started for some specific database, run:
+    select pgls_filter('datbaase_name', 'your_database_name');
+    
+Current filter mode configuration can be listed with:
+    select pgls_conf();
+    
+To start logging server process settings at server process creation time, run:
+    select pgls_start_debug();
+    
+To stop logging server process setting at server process creation time, run:
+    select pgls_stop_debug();
+    
+
