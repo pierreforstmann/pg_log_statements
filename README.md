@@ -34,7 +34,7 @@ PGLS has no GUC parameter and run `log_statement=all` for selected server proces
 PGLS can be used in 2 different ways:
 
 1. Either by using the server process identifier (pid): pid mode
-2. Or by using a filter to enable logging from server process start to server process end (the filter clause specified which server processed will enable `log_statement=all`): filter mode
+2. Or by using a filter to enable logging from server process start to server process end (the filter clause specifies which server processed are going to enable `log_statement=all`): filter mode
 
 Both modes are complementary and cannot be mixed:
 - if pid mode has been used, PGLS allows to stop server process logging
