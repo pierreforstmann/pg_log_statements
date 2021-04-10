@@ -57,24 +57,24 @@ To check what is the current status of `log_statement` parameter for all server 
 ### Using filter mode
 
 To enable `log_statement` parameter for new server process started by a specific PostgreSQL user, run:
-    select pgls_filter('user_name', 'your_user');
+`select pgls_filter('user_name', 'your_user');`
     
 To enable `log_statement` parameter for new server process started from some specific host name, run:
-    select pgls_filter('hostname', 'your_hostname');
+`select pgls_filter('hostname', 'your_hostname');`
     
 To enable `log_statement` parameter for new server process started from some specific IP address, run:
-    select pgls_filter('ip_address', 'your_IP_address');
+`select pgls_filter('ip_address', 'your_IP_address');`
     
 To enable `log_statement` parameter for new server process started for some specific database, run:
-    select pgls_filter('datbaase_name', 'your_database_name');
+ `select pgls_filter('databaase_name', 'your_database_name');`
     
 Current filter mode configuration can be listed with:
-    select pgls_conf();
+ `select pgls_conf();`
     
 To start logging server process settings at server process creation time, run:
-    select pgls_start_debug();
+`select pgls_start_debug();`
     
-To stop logging server process setting at server process creation time, run:
-    select pgls_stop_debug();
+To stop logging server process settings at server process creation time, run:
+`select pgls_stop_debug();`
     
 
