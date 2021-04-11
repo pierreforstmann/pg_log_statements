@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *  
- * pg_log_statementss is a PostgreSQL extension which allows to log SQL statements 
- * for specific sessions.
+ * pg_log_statements is a PostgreSQL extension which allows to log SQL statements 
+ * for specific backends.
  *  
  * This program is open source, licensed under the PostgreSQL license.
  * For license terms, see the LICENSE file.
