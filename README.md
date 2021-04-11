@@ -60,7 +60,7 @@ To enable `log_statement` parameter for new server process started by a specific
 
 `select pgls_filter('application_name', 'your_application');`
 
-To enable `log_statement` parameter for new server process started by a specific PostgreSQL user, run:
+To enable `log_statement` parameter for new server process started by some specific PostgreSQL user, run:
 
 `select pgls_filter('user_name', 'your_user');`
     
