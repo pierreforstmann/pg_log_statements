@@ -56,6 +56,10 @@ To check what is the current status of `log_statement` parameter for all server 
 
 ### Using filter mode
 
+To enable `log_statement` parameter for new server process started by a specific application, run:
+
+`select pgls_filter('application_name', 'your_application');`
+
 To enable `log_statement` parameter for new server process started by a specific PostgreSQL user, run:
 
 `select pgls_filter('user_name', 'your_user');`
@@ -76,11 +80,14 @@ Current filter mode configuration can be listed with:
 
 `select pgls_conf();`
     
-To start logging server process settings at server process creation time, run:
+Filter mode is using parameters defined in `Port` structure (see `libpq-be.h`) used for frontend/backend communication.
+These parameters can be logged using following functions:
+   
+To start parameters logging at server process creation time, run:
 
 `select pgls_start_debug();`
     
-To stop logging server process settings at server process creation time, run:
+To stop parameters logging at server process creation time, run:
 
 `select pgls_stop_debug();`
     
