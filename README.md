@@ -56,7 +56,7 @@ To check what is the current status of `log_statement` parameter for all server 
 
 ### Using filter mode
 
-To enable `log_statement` parameter for new server process started by a specific application, run:
+To enable `log_statement` parameter for new server process started by some specific application, run:
 
 `select pgls_filter('application_name', 'your_application');`
 
@@ -71,6 +71,8 @@ To enable `log_statement` parameter for new server process started from some spe
 To enable `log_statement` parameter for new server process started from some specific IP address, run:
 
 `select pgls_filter('ip_address', 'your_IP_address');`
+
+NB: IP address is tested against `remote_host` of `Port' structure.
     
 To enable `log_statement` parameter for new server process started for some specific database, run:
 
