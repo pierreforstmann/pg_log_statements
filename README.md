@@ -72,7 +72,7 @@ To enable `log_statement` parameter for new server process started from some spe
 
 `select pgls_filter('ip_address', 'your_IP_address');`
 
-NB: IP address is tested against `remote_host` of `Port' structure.
+NB: IP address is tested against `remote_host` of `Port` structure.
     
 To enable `log_statement` parameter for new server process started for some specific database, run:
 
