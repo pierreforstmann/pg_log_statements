@@ -168,6 +168,9 @@ static void pgls_puexec(
 		      PlannedStmt *pstmt,
 #endif
 		      const char *queryString,
+#if PG_VERSION_NUM >=140000
+                      bool readOnlyTree,
+#endif
 		      ProcessUtilityContext context,
 		      ParamListInfo params,
 #if PG_VERSION_NUM > 100000
@@ -442,6 +445,9 @@ pgls_puexec(
 	  PlannedStmt *pstmt,
 #endif
 	  const char *queryString,
+#if PG_VERSION_NUM >= 140000
+	  bool readOnlyTree,
+#endif
 	  ProcessUtilityContext context,
 	  ParamListInfo params,
 #if PG_VERSION_NUM > 100000
@@ -493,6 +499,9 @@ pgls_puexec(
 						  pstmt, 
 #endif
 						  queryString,
+#if PG_VERSION_NUM >= 140000
+						  readOnlyTree,
+#endif
 						  context, 
 						  params,
 #if PG_VERSION_NUM > 100000
@@ -511,6 +520,9 @@ pgls_puexec(
 					pstmt, 
 #endif
 					queryString,
+#if PG_VERSION_NUM >= 140000
+					readOnlyTree,
+#endif
 				       	context,
 					params, 
 #if PG_VERSION_NUM > 100000
