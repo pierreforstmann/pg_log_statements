@@ -114,6 +114,7 @@ typedef struct pglsSharedState
 } pglsSharedState;
 
 /* Saved hook values in case of unload */
+static shmem_request_hook_type prev_shmem_request_hook = NULL;
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 static ProcessUtility_hook_type prev_process_utility_hook = NULL;
 static ExecutorStart_hook_type prev_executor_start_hook = NULL;
@@ -156,6 +157,7 @@ PG_FUNCTION_INFO_V1(pgls_stop_debug);
 void		_PG_init(void);
 void		_PG_fini(void);
 
+static void pgls_shmem_request(void);
 static void pgls_shmem_startup(void);
 static void pgls_shmem_shutdown(int code, Datum arg);
 
@@ -204,6 +206,23 @@ pgls_memsize(void)
 	return size;
 }
 
+/*
+ * shmen_request_hook
+ */
+static void 
+pgls_shmem_request(void)
+{
+	/*
+ 	 * Request additional shared resources.  (These are no-ops if we're not in
+ 	 * the postmaster process.)  We'll allocate or attach to the shared
+ 	 * resources in pgls_shmem_startup().
+	 */
+	RequestAddinShmemSpace(pgls_memsize());
+#if PG_VERSION_NUM >= 90600
+	RequestNamedLWLockTranche("pg_log_statements", 1);
+#endif
+
+}
 
 /*
  * shmem_startup hook: allocate or attach to shared memory.
@@ -218,10 +237,11 @@ pgls_shmem_startup(void)
 	pglsFilter	*filters;
 	int		i;
 
-	elog(DEBUG5, "pg_log_statements: pgls_shmem_startup: entry");
+	elog(DEBUG5, "pg_log_statements: pgls_shmem_request: entry");
 
-	if (prev_shmem_startup_hook)
-		prev_shmem_startup_hook();
+
+	if (prev_shmem_request_hook)
+		prev_shmem_request_hook();
 
 	/* reset in case this is a restart within the postmaster */
 	pgls = NULL;
@@ -246,7 +266,7 @@ pgls_shmem_startup(void)
 	
 	}
 
-	elog(LOG, "pg_log_statements: pgls_shmem_startup: MaxBackends=%d", 
+	elog(LOG, "pg_log_statements: pgls_shmem_request: MaxBackends=%d", 
                    MaxBackends);
 	procs = (pglsProc *)ShmemAlloc(MaxBackends * sizeof(pglsProc));
 	MemSet(procs, 0, MaxBackends * sizeof(pglsProc));
@@ -281,9 +301,9 @@ pgls_shmem_startup(void)
 		return;
 
 	pgls_enabled = true;
-	elog(LOG, "pg_log_statements: pgls_shmem_startup: pg_log_statements is enabled");
+	elog(LOG, "pg_log_statements: pgls_shmem_request: pg_log_statements is enabled");
 
-	elog(DEBUG5, "pg_log_statements: pgls_shmem_startup: exit");
+	elog(DEBUG5, "pg_log_statements: pgls_shmem_request: exit");
 
 }
 
@@ -323,21 +343,13 @@ _PG_init(void)
 	
 	elog(LOG, "pg_log_statements:_PG_init(): pg_log_statements extension detected");
 
-	/*
- 	 * Request additional shared resources.  (These are no-ops if we're not in
- 	 * the postmaster process.)  We'll allocate or attach to the shared
- 	 * resources in pgls_shmem_startup().
-	 */
-	RequestAddinShmemSpace(pgls_memsize());
-#if PG_VERSION_NUM >= 90600
-	RequestNamedLWLockTranche("pg_log_statements", 1);
-#endif
-
 
 	/*
  	 * Install hooks
 	 */
 
+	prev_shmem_request_hook = shmem_request_hook;
+	shmem_request_hook = pgls_shmem_request;
 	prev_shmem_startup_hook = shmem_startup_hook;
 	shmem_startup_hook = pgls_shmem_startup;
 	prev_executor_start_hook = ExecutorStart_hook;
@@ -360,7 +372,7 @@ _PG_fini(void)
 	elog(DEBUG5, "pg_log_statements: _PG_fini(): entry");
 
 	/* Uninstall hooks. */
-	shmem_startup_hook = prev_shmem_startup_hook;
+	shmem_request_hook = prev_shmem_request_hook;
 	ProcessUtility_hook = prev_process_utility_hook;
 	ClientAuthentication_hook = next_client_auth_hook;
 
