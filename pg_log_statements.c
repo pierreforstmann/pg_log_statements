@@ -1170,8 +1170,8 @@ static Datum pgls_conf_internal(FunctionCallInfo fcinfo)
 	{
 		char 		*values[2];
 		HeapTuple	tuple;
-		char		buf_v1[20];
-		char		buf_v2[20];
+		char		buf_v1[25];
+		char		buf_v2[25];
 
 
 		switch(pgls->filters[i].type)
