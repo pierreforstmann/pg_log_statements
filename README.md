@@ -25,7 +25,7 @@ It must also be created with following SQL statement at server level:
 
     create extension pg_log_statements;
 
-This extension has been validated with PostgreSQL 9.5, 9.6, 10, 11, 12, 13 and 14.
+This extension has been validated with PostgreSQL 9.5, 9.6, 10, 11, 12, 13, 14 and 15.
 
 ## Usage
 
