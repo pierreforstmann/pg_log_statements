@@ -9,4 +9,4 @@ PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
 pgxn:
-	git archive --format zip  --output ../pgxn/pg_log_statements/pg_procfs-0.0.3.zip main
+	git archive --format zip  --output ../pgxn/pg_log_statements/pg_procfs-0.0.4.zip main
