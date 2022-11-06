@@ -813,7 +813,7 @@ static Datum pgls_state_internal(FunctionCallInfo fcinfo)
 	tupdesc = CreateTemplateTupleDesc(2);
 #endif
 	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "pid",
-					   INT2OID, -1, 0);
+					   INT4OID, -1, 0);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "status",
 					   TEXTOID, -1, 0);
 
