@@ -7,3 +7,6 @@ DATA = pg_log_statements--0.0.2.sql    # script file to install
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
+
+pgxn:
+	git archive --format zip  --output ../pgxn/pg_log_statements/pg_procfs-0.0.3.zip main

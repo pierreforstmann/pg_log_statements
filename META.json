@@ -1,7 +1,7 @@
 {
    "name": "pg_log_statements",
    "abstract": "set log_statement for specific backends",
-   "version": "0.0.3",
+   "version": "0.0.4",
    "release_status": "testing",
    "maintainer": [
       "Pierre Forstmann"
@@ -24,7 +24,7 @@
          "abstract": "set log_statement for specific server processes",
          "file": "pg_log_statements.c",
          "docfile": "README.md",
-         "version": "0.0.3"
+         "version": "0.0.4"
       }
    },
    "resources": {

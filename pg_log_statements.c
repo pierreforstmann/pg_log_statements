@@ -114,7 +114,9 @@ typedef struct pglsSharedState
 } pglsSharedState;
 
 /* Saved hook values in case of unload */
+#if PG_VERSION_NUM >= 150000
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
+#endif
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 static ProcessUtility_hook_type prev_process_utility_hook = NULL;
 static ExecutorStart_hook_type prev_executor_start_hook = NULL;
@@ -217,6 +219,12 @@ pgls_shmem_request(void)
  	 * the postmaster process.)  We'll allocate or attach to the shared
  	 * resources in pgls_shmem_startup().
 	 */
+
+#if PG_VERSION_NUM >= 150000 
+	if (prev_shmem_request_hook)
+		prev_shmem_request_hook();
+#endif
+
 	RequestAddinShmemSpace(pgls_memsize());
 #if PG_VERSION_NUM >= 90600
 	RequestNamedLWLockTranche("pg_log_statements", 1);
@@ -240,8 +248,8 @@ pgls_shmem_startup(void)
 	elog(DEBUG5, "pg_log_statements: pgls_shmem_request: entry");
 
 
-	if (prev_shmem_request_hook)
-		prev_shmem_request_hook();
+	if (prev_shmem_startup_hook)
+		prev_shmem_startup_hook();
 
 	/* reset in case this is a restart within the postmaster */
 	pgls = NULL;
@@ -347,9 +355,12 @@ _PG_init(void)
 	/*
  	 * Install hooks
 	 */
-
+#if PG_VERSION_NUM >= 150000
 	prev_shmem_request_hook = shmem_request_hook;
 	shmem_request_hook = pgls_shmem_request;
+#else
+	pgls_shmem_request();
+#endif
 	prev_shmem_startup_hook = shmem_startup_hook;
 	shmem_startup_hook = pgls_shmem_startup;
 	prev_executor_start_hook = ExecutorStart_hook;
@@ -372,7 +383,10 @@ _PG_fini(void)
 	elog(DEBUG5, "pg_log_statements: _PG_fini(): entry");
 
 	/* Uninstall hooks. */
+#if PG_VERSION_NUM >= 150000
 	shmem_request_hook = prev_shmem_request_hook;
+#endif
+	shmem_startup_hook = prev_shmem_startup_hook;
 	ProcessUtility_hook = prev_process_utility_hook;
 	ClientAuthentication_hook = next_client_auth_hook;
 
