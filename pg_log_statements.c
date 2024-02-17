@@ -996,8 +996,13 @@ static void pgls_auth(Port *port, int status)
                        && strcmp(MyProcPort->database_name, pgls->filters[i].filter) == 0)
                    )
 		{
+			/*
+			 * use PGC_S_DYNAMIC_DEFAULT instead of PGC_S_CLIENT to avoid
+			 * TRAP: failed Assert("OidIsValid(CurrentUserId)"), File: "miscinit.c"
+			 * because default value of CurrentUserId in miscinit.c is set to InvalidOid
+			 */
 			found = true;
-       			SetConfigOption("log_statement", "all", PGC_SUSET, PGC_S_CLIENT);
+       			SetConfigOption("log_statement", "all", PGC_SUSET, PGC_S_DYNAMIC_DEFAULT);
 		        elog(LOG, "pg_log_statements: pgls_auth: pg_log_statement=all for %d", MyProcPid);
 			pgls_add_backend(MyProcPid, pgls_started);
 		}
